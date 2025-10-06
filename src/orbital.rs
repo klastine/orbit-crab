@@ -1,34 +1,7 @@
 use crate::utils;
+use crate::utils::{Vec3, EARTH_MU, EARTH_RADIUS};
+use crate::gnc;
 
-// Physical constants
-const EARTH_MU: f64 = 398600.4418;
-const EARTH_RADIUS: f64 = 6371.0;
-
-#[derive(Debug, Clone, Copy)]
-pub struct Vec3 {
-    pub x: f64,
-    pub y: f64,
-    pub z: f64,
-}
-
-impl Vec3 {
-    pub fn new(x: f64, y: f64, z: f64) -> Self {
-        Vec3 { x, y, z }
-    }
-    
-    pub fn magnitude(&self) -> f64 {
-        libm::sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
-    }
-    
-    pub fn normalize(&self) -> Vec3 {
-        let mag = self.magnitude();
-        if mag > 0.0 {
-            Vec3::new(self.x / mag, self.y / mag, self.z / mag)
-        } else {
-            Vec3::new(0.0, 0.0, 0.0)
-        }
-    }
-}
 
 /// Orbital elements (Keplerian elements)
 #[derive(Debug, Clone)]
@@ -65,9 +38,11 @@ impl OrbitalElements {
 #[derive(Debug, Clone)]
 pub struct Satellite {
     pub elements: OrbitalElements,
-    pub position: Vec3,
-    pub velocity: Vec3,
+    pub state: gnc::State,
+    pub control: gnc::Control,
     pub time: f64,
+    pub thrust_limit_n: f64,
+    pub j2_on: bool,
 }
 
 impl Satellite {
@@ -78,6 +53,9 @@ impl Satellite {
         raan: f64,
         arg_periapsis: f64,
         true_anomaly: f64,
+        mass: f64,
+        isp: f64,
+        thrust_limit_n: f64,
     ) -> Self {
         let elements = OrbitalElements::new(
             semi_major_axis,
@@ -92,12 +70,15 @@ impl Satellite {
         
         Satellite {
             elements,
-            position,
-            velocity,
+            state: gnc::State { r: position, v: velocity, m: mass },
+            control: gnc::Control { thrust_eci: Vec3::ZERO, isp: isp },
             time: 0.0,
+            thrust_limit_n,
+            j2_on: true,
         }
     }
     
+    // https://en.wikipedia.org/wiki/Orbital_elements
     fn elements_to_state_vectors(elements: &OrbitalElements) -> (Vec3, Vec3) {
         let a = elements.semi_major_axis;
         let e = elements.eccentricity;
@@ -140,23 +121,83 @@ impl Satellite {
         
         (Vec3::new(x, y, z), Vec3::new(vx, vy, vz))
     }
+
+    // https://en.wikipedia.org/wiki/Orbital_elements
+    pub fn state_vectors_to_elements(r: Vec3, v: Vec3) -> OrbitalElements {
+        // Constants & helpers
+        const EPS: f64 = 1e-10;
     
-    /// Update satellite position using simplified orbital propagation
-    /// This uses mean motion for circular/elliptical orbits
-    pub fn update(&mut self, delta_time: f64) {
-        self.time += delta_time;
-        
-        // Calculate mean motion (radians per second)
-        let n = libm::sqrt(EARTH_MU / libm::pow(self.elements.semi_major_axis, 3.0));
-        
-        // Update true anomaly (simplified - assumes near-circular orbit)
-        self.elements.true_anomaly += n * delta_time;
-        self.elements.true_anomaly %= 2.0 * std::f64::consts::PI;
-        
-        // Recalculate position and velocity
-        let (position, velocity) = Self::elements_to_state_vectors(&self.elements);
-        self.position = position;
-        self.velocity = velocity;
+        let r_norm = r.magnitude();
+        let v_norm2 = v.dot(v);
+        let h_vec = r.cross(v);
+        let h_norm = h_vec.magnitude();
+    
+        // Inclination
+        let i = (h_vec.z / h_norm).acos();
+    
+        // Node vector (pointing to ascending node): n = k × h
+        let n_vec = Vec3::new(-h_vec.y, h_vec.x, 0.0);
+        let n_norm = n_vec.magnitude();
+    
+        let e_vec = (v.cross(h_vec) / EARTH_MU) - (r / r_norm);
+        let e = e_vec.magnitude();
+    
+        let a = 1.0 / (2.0 / r_norm - v_norm2 / EARTH_MU);
+    
+        let raan = if n_norm > EPS {
+            utils::normalize_angle(libm::atan2(n_vec.y, n_vec.x))
+        } else {
+            0.0 
+        };
+    
+        // Argument of periapsis (ω)
+        let arg_periapsis = if e > EPS && n_norm > EPS {
+            let cos_w = (n_vec.dot(e_vec)) / (n_norm * e);
+            let sin_w = (n_vec.cross(e_vec)).z / (n_norm * e);
+            utils::normalize_angle(libm::atan2(sin_w, cos_w))
+        } else if e > EPS && n_norm <= EPS {
+            // Equatorial but eccentric: measure from x-axis
+            utils::normalize_angle(libm::atan2(e_vec.y, e_vec.x))
+        } else {
+            0.0
+        };
+    
+        // True anomaly (ν)
+        let true_anomaly = if e > EPS {
+            // cosν = (e·r)/(e|r|)
+            let cos_nu = (e_vec.dot(r)) / (e * r_norm);
+            let cos_nu = cos_nu.clamp(-1.0, 1.0);
+            let mut nu = libm::acos(cos_nu);
+            // Resolve quadrant using r·v
+            if r.dot(v) < 0.0 {
+                nu = 2.0 * std::f64::consts::PI - nu;
+            }
+            utils::normalize_angle(nu)
+        } else if n_norm > EPS {
+            let cos_u = (n_vec.dot(r)) / (n_norm * r_norm);
+            let sin_u = (n_vec.cross(r)).z / (n_norm * r_norm);
+            utils::normalize_angle(libm::atan2(sin_u, cos_u))
+        } else {
+            utils::normalize_angle(libm::atan2(r.y, r.x))
+        };
+    
+        OrbitalElements::new(a, e, i, raan, arg_periapsis, true_anomaly)
+    }
+    
+    pub fn set_thrust_eci(&mut self, thrust_n_eci: Vec3) {
+        // clamp to actuator capability
+        let mag = thrust_n_eci.magnitude();
+        self.control.thrust_eci = if mag > self.thrust_limit_n {
+            thrust_n_eci * (self.thrust_limit_n / mag)
+        } else { thrust_n_eci };
+    }
+
+    pub fn update(&mut self, dt: f64) {
+        // integrate one step
+        self.state = gnc::rk4_step(gnc::eom, self.time, &self.state, &self.control, dt);
+        self.time += dt;
+
+        self.elements = Self::state_vectors_to_elements(self.state.r, self.state.v);
     }
     
     /// Get orbital period in seconds
@@ -168,7 +209,7 @@ impl Satellite {
     
     /// Get current velocity magnitude in km/s
     pub fn get_velocity(&self) -> f64 {
-        self.velocity.magnitude()
+        self.state.v.magnitude()
     }
     
     /// Get apoapsis altitude (highest point) in kilometers
