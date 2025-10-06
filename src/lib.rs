@@ -1,5 +1,6 @@
 mod utils;
 mod orbital;
+mod gnc;
 
 use wasm_bindgen::prelude::*;
 
@@ -36,6 +37,9 @@ impl Satellite {
         raan: f64,
         arg_periapsis: f64,
         true_anomaly: f64,
+        mass: f64,
+        isp: f64,
+        thrust_limit_n: f64,
     ) -> Satellite {
         Satellite {
             inner: orbital::Satellite::new(
@@ -45,6 +49,9 @@ impl Satellite {
                 raan,
                 arg_periapsis,
                 true_anomaly,
+                mass,
+                isp,
+                thrust_limit_n,
             ),
         }
     }
@@ -56,17 +63,17 @@ impl Satellite {
     
     /// Get current X position in kilometers
     pub fn get_x(&self) -> f64 {
-        self.inner.position.x
+        self.inner.state.r.x
     }
     
     /// Get current Y position in kilometers
     pub fn get_y(&self) -> f64 {
-        self.inner.position.y
+        self.inner.state.r.y
     }
     
     /// Get current Z position in kilometers
     pub fn get_z(&self) -> f64 {
-        self.inner.position.z
+        self.inner.state.r.z
     }
     
     /// Get orbital period in seconds

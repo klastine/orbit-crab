@@ -17,9 +17,12 @@ export interface WasmModule {
     inclination: number,
     raan: number,
     argPeriapsis: number,
-    trueAnomaly: number
+    trueAnomaly: number,
+    mass: number,
+    isp: number,
+    thrustLimitN: number
   ) => Satellite;
-  default: () => Promise<any>; // WASM initialization function
+  init: () => void; // WASM initialization function
 }
 
 // Load WASM module
@@ -27,7 +30,7 @@ export const loadWasm = async (): Promise<WasmModule> => {
   try {
     // Import the WASM module from the local pkg directory
     const wasm = await import('../pkg/orbit_crab.js')
-    return wasm as WasmModule
+    return wasm as unknown as WasmModule
   } catch (error) {
     console.error('Failed to load WASM module:', error)
     throw error
