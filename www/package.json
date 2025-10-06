@@ -1,0 +1,34 @@
+{
+  "name": "orbit-crab-react",
+  "version": "0.1.0",
+  "description": "OrbitCrab React frontend - Orbital mechanics visualization",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "wasm:build": "cd .. && wasm-pack build --target web --out-dir pkg && cp -r pkg ./www/pkg",
+    "wasm:copy": "cp -r ../pkg ./pkg"
+  },
+  "keywords": [
+    "orbital-mechanics",
+    "rust",
+    "wasm",
+    "webassembly",
+    "satellite",
+    "react",
+    "typescript"
+  ],
+  "author": "Kyle Lastine",
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.8"
+  }
+}
