@@ -191,7 +191,7 @@ const OrbitCanvas: React.FC = () => {
         console.log('WASM loaded successfully:', wasm)
         
         console.log('Initializing WASM...')
-        await wasm.default()
+        wasm.init()
         console.log('WASM initialized successfully')
         
         // Create ISS-like satellite (408 km altitude, circular orbit, 51.6° inclination)
