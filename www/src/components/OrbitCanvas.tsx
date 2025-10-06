@@ -205,7 +205,10 @@ const OrbitCanvas: React.FC = () => {
           51.6,   // inclination (degrees)
           0.0,    // RAAN (degrees)
           0.0,    // argument of periapsis (degrees)
-          0.0     // initial true anomaly (degrees)
+          0.0,    // initial true anomaly (degrees)
+          1000.0, // mass (kg)
+          300.0,  // isp (specific impulse in seconds)
+          1000.0  // thrust limit (N)
         )
         
         console.log('Satellite created successfully:', satelliteRef.current)
@@ -277,7 +280,10 @@ const OrbitCanvas: React.FC = () => {
           inclinationDeg,
           0,
           0,
-          0
+          0,
+          1000.0, // mass (kg)
+          300.0,  // isp (specific impulse in seconds)
+          1000.0  // thrust limit (N)
         )
       }
       // reset integrator clock to avoid jumps
